@@ -1,7 +1,7 @@
 {
-  "name": "Folga Trabalhada — PJ Tecnologia",
+  "name": "Folga Trabalhada",
   "short_name": "FT",
-  "description": "Sistema de controle de folgas trabalhadas e bicos fixos",
+  "description": "Sistema de controle de folgas trabalhadas e bicos fixos - PJ Tecnologia",
   "start_url": "./folga-trabalhada-v19-7-2-7-2.html",
   "scope": "./",
   "display": "standalone",
@@ -9,6 +9,7 @@
   "background_color": "#0d1117",
   "theme_color": "#f7b731",
   "lang": "pt-BR",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "icon-192.png",
@@ -24,3 +25,4 @@
     }
   ]
 }
+

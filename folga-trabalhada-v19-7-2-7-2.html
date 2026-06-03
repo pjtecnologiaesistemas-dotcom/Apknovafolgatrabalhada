@@ -7357,6 +7357,10 @@ var FIRESTORE_DOC_ID     = 'dados';
         if (typeof p.alertarNoite !== 'boolean') p.alertarNoite  = true;
         if (typeof p.postosInativos !== 'object' || Array.isArray(p.postosInativos))
           p.postosInativos = {};
+        if (typeof p.postosTurnoInativo !== 'object' || Array.isArray(p.postosTurnoInativo))
+          p.postosTurnoInativo = {};
+        if (typeof p.postosEscalaDia !== 'object' || Array.isArray(p.postosEscalaDia))
+          p.postosEscalaDia = {};
         return p;
       }
     } catch (e) {}
@@ -7393,6 +7397,53 @@ var FIRESTORE_DOC_ID     = 'dados';
     renderCadAlertasPostos();
     renderBicoPostosMonitorados();
     updateHeaderBadge();
+  }
+
+  /* ── Helpers de alerta por turno/posto ──────────────────── */
+  function postoAlertaDia(cfg, posto) {
+    if (!cfg.postosTurnoInativo) return true;
+    return cfg.postosTurnoInativo[posto + '__dia'] !== true;
+  }
+  function postoAlertaNoite(cfg, posto) {
+    if (!cfg.postosTurnoInativo) return true;
+    return cfg.postosTurnoInativo[posto + '__noite'] !== true;
+  }
+  function togglePostoTurno(posto, turno) { // turno: 'dia' | 'noite'
+    var cfg = loadConfig();
+    if (!cfg.postosTurnoInativo) cfg.postosTurnoInativo = {};
+    var key = posto + '__' + turno;
+    cfg.postosTurnoInativo[key] = !cfg.postosTurnoInativo[key];
+    saveConfig(cfg);
+    renderConfigPostos();
+    renderCadAlertasPostos();
+    renderBicoPostosMonitorados();
+    updateHeaderBadge();
+  }
+
+  /* ── Helpers de escala par/ímpar por posto ──────────────── */
+  // Valores: 'todo' (padrão), 'par', 'impar'
+  function getEscalaDiaPosto(cfg, posto) {
+    if (!cfg.postosEscalaDia) return 'todo';
+    return cfg.postosEscalaDia[posto] || 'todo';
+  }
+  function setEscalaDiaPosto(posto, valor) { // valor: 'todo' | 'par' | 'impar'
+    var cfg = loadConfig();
+    if (!cfg.postosEscalaDia) cfg.postosEscalaDia = {};
+    cfg.postosEscalaDia[posto] = valor;
+    saveConfig(cfg);
+    renderConfigPostos();
+    renderCadAlertasPostos();
+    renderBicoPostosMonitorados();
+    updateHeaderBadge();
+  }
+  function escalaDiaPermite(cfg, posto, dataRef) {
+    var regra = getEscalaDiaPosto(cfg, posto);
+    if (regra === 'todo') return true;
+    var dia = parseInt((dataRef || '').split('-')[2], 10);
+    if (isNaN(dia)) return true;
+    if (regra === 'par')   return dia % 2 === 0;
+    if (regra === 'impar') return dia % 2 !== 0;
+    return true;
   }
 
   /* ── Helpers ───────────────────────────────────────────── */
@@ -7493,6 +7544,13 @@ var FIRESTORE_DOC_ID     = 'dados';
       /* Aplica regra especial de FT (ex: dias ímpares) */
       if (regraFT && !regraFT(c.dataRef)) return;
 
+      /* Aplica regra de par/ímpar configurada pelo usuário (sobrescreve regraFT) */
+      var cfgCheck = loadConfig();
+      var regraUser = getEscalaDiaPosto(cfgCheck, posto);
+      if (regraUser !== 'todo') {
+        if (!escalaDiaPermite(cfgCheck, posto, c.dataRef)) return;
+      }
+
       ativos.push({
         posto:   posto,
         periodo: t.per,
@@ -7527,6 +7585,8 @@ var FIRESTORE_DOC_ID     = 'dados';
       turnos.forEach(function (turno) {
         if (turno.periodo === 'dia'   && !cfg.alertarDia)   return;
         if (turno.periodo === 'noite' && !cfg.alertarNoite) return;
+        if (turno.periodo === 'dia'   && !postoAlertaDia(cfg, posto))   return;
+        if (turno.periodo === 'noite' && !postoAlertaNoite(cfg, posto)) return;
 
         /* Hora de entrada do turno ativo segundo a escala (ex: 16 na sexta) */
         var hEntrada = Math.floor(turno.entrada / 60);
@@ -7950,6 +8010,30 @@ var FIRESTORE_DOC_ID     = 'dados';
     });
   }
 
+  /* ── Helper: cria botões Par/Ímpar/Todo para um posto ─── */
+  function makeEscalaDiaButtons(cfg, posto) {
+    var atual = getEscalaDiaPosto(cfg, posto);
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:4px;';
+    [
+      { val: 'par',   label: 'Par',    icon: '\u25CF', title: 'Alertar apenas dias PARES (2, 4, 6\u2026)'    },
+      { val: 'impar', label: '\u00CDmpar', icon: '\u25CB', title: 'Alertar apenas dias \u00CDMPAREs (1, 3, 5\u2026)' },
+      { val: 'todo',  label: 'Todo',   icon: '\u25C9', title: 'Alertar todos os dias do m\u00EAs'             }
+    ].forEach(function(op) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.title = op.title;
+      btn.textContent = op.icon + ' ' + op.label;
+      var on = (atual === op.val);
+      btn.style.cssText = 'flex:1;border:1px solid;border-radius:7px;padding:4px 0;font-size:.73rem;font-weight:700;cursor:pointer;transition:background .15s;' +
+        (on ? 'background:rgba(69,170,242,.22);color:#45aaf2;border-color:rgba(69,170,242,.55);'
+            : 'background:rgba(139,151,176,.07);color:#566278;border-color:#2a3347;');
+      (function(v){ btn.onclick = function(){ setEscalaDiaPosto(posto, v); }; })(op.val);
+      wrap.appendChild(btn);
+    });
+    return wrap;
+  }
+
   /* ── Renderiza lista de postos na config ───────────────── */
   function renderConfigPostos() {
     var cfg  = loadConfig();
@@ -7965,36 +8049,60 @@ var FIRESTORE_DOC_ID     = 'dados';
     cfg.postos.forEach(function (posto, idx) {
       var ativo = postoAtivoEsteMes(cfg, posto);
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;background:#10151e;border:1px solid ' +
+      row.style.cssText = 'display:flex;flex-direction:column;gap:6px;background:#10151e;border:1px solid ' +
         (ativo ? '#2a3347' : 'rgba(252,92,101,.3)') + ';border-radius:10px;padding:8px 12px;opacity:' + (ativo ? '1' : '0.6') + ';';
 
+      // ── Linha 1: nome + ☀️ 🌙 + ativo + ✕ ──
+      var linha1 = document.createElement('div');
+      linha1.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
       var lbl = document.createElement('span');
-      lbl.style.cssText = 'flex:1;color:' + (ativo ? '#e8edf5' : '#8b97b0') + ';font-size:.88rem;';
+      lbl.style.cssText = 'flex:1;color:' + (ativo ? '#e8edf5' : '#8b97b0') + ';font-size:.88rem;font-weight:600;';
       lbl.textContent = posto;
 
-      // Toggle ativo este mês
+      var diaOn = postoAlertaDia(cfg, posto);
+      var btnDia2 = document.createElement('button');
+      btnDia2.type = 'button';
+      btnDia2.title = diaOn ? 'Desativar alerta Dia' : 'Ativar alerta Dia';
+      btnDia2.style.cssText = 'border:1px solid;border-radius:7px;padding:3px 7px;font-size:.72rem;cursor:pointer;' +
+        (diaOn ? 'background:rgba(255,210,63,.15);color:#ffd23f;border-color:rgba(255,210,63,.4);' : 'background:rgba(139,151,176,.08);color:#4a5568;border-color:#2a3347;');
+      btnDia2.textContent = '\u2600\uFE0F';
+      (function(p){ btnDia2.onclick = function(){ togglePostoTurno(p,'dia'); }; })(posto);
+
+      var noiteOn = postoAlertaNoite(cfg, posto);
+      var btnNoite2 = document.createElement('button');
+      btnNoite2.type = 'button';
+      btnNoite2.title = noiteOn ? 'Desativar alerta Noite' : 'Ativar alerta Noite';
+      btnNoite2.style.cssText = 'border:1px solid;border-radius:7px;padding:3px 7px;font-size:.72rem;cursor:pointer;' +
+        (noiteOn ? 'background:rgba(100,130,255,.15);color:#7c8fff;border-color:rgba(100,130,255,.4);' : 'background:rgba(139,151,176,.08);color:#4a5568;border-color:#2a3347;');
+      btnNoite2.textContent = '\uD83C\uDF19';
+      (function(p){ btnNoite2.onclick = function(){ togglePostoTurno(p,'noite'); }; })(posto);
+
       var toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
       toggleBtn.title = ativo ? 'Desativar este mês' : 'Ativar este mês';
-      toggleBtn.style.cssText = 'border:none;border-radius:7px;padding:4px 9px;font-size:.75rem;font-weight:700;cursor:pointer;white-space:nowrap;' +
-        (ativo
-          ? 'background:rgba(38,222,129,.15);color:#26de81;'
-          : 'background:rgba(252,92,101,.15);color:#fc5c65;');
-      toggleBtn.textContent = ativo ? '✅ Ativo' : '⏸ Inativo';
+      toggleBtn.style.cssText = 'border:none;border-radius:7px;padding:3px 8px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;' +
+        (ativo ? 'background:rgba(38,222,129,.15);color:#26de81;' : 'background:rgba(252,92,101,.15);color:#fc5c65;');
+      toggleBtn.textContent = ativo ? '\u2705' : '\u23F8';
       toggleBtn.onclick = function() { togglePostoMes(posto); };
 
       var btnDel = document.createElement('button');
-      btnDel.style.cssText = 'border:none;background:rgba(139,151,176,.1);color:#8b97b0;border-radius:7px;padding:4px 8px;font-size:.78rem;font-weight:700;cursor:pointer;';
-      btnDel.textContent = '✕';
-      btnDel.onclick = function () {
-        cfg.postos.splice(idx, 1);
-        saveConfig(cfg);
-        renderConfigPostos();
-        updateHeaderBadge();
-      };
+      btnDel.type = 'button';
+      btnDel.style.cssText = 'border:none;background:rgba(139,151,176,.1);color:#8b97b0;border-radius:7px;padding:3px 7px;font-size:.78rem;font-weight:700;cursor:pointer;';
+      btnDel.textContent = '\u2715';
+      btnDel.onclick = function () { cfg.postos.splice(idx, 1); saveConfig(cfg); renderConfigPostos(); updateHeaderBadge(); };
 
-      row.appendChild(lbl);
-      row.appendChild(toggleBtn);
-      row.appendChild(btnDel);
+      linha1.appendChild(lbl);
+      linha1.appendChild(btnDia2);
+      linha1.appendChild(btnNoite2);
+      linha1.appendChild(toggleBtn);
+      linha1.appendChild(btnDel);
+
+      // ── Linha 2: Par / Ímpar / Todo ──
+      var linha2 = makeEscalaDiaButtons(cfg, posto);
+
+      row.appendChild(linha1);
+      row.appendChild(linha2);
       list.appendChild(row);
     });
   }
@@ -8149,44 +8257,68 @@ var FIRESTORE_DOC_ID     = 'dados';
     cfg.postos.forEach(function(posto, idx) {
       var ativo = postoAtivoEsteMes(cfg, posto);
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;background:#10151e;border:1px solid ' +
+      row.style.cssText = 'display:flex;flex-direction:column;gap:6px;background:#10151e;border:1px solid ' +
         (ativo ? '#2a3347' : 'rgba(252,92,101,.25)') + ';border-radius:10px;padding:8px 12px;opacity:' + (ativo ? '1' : '0.6') + ';';
 
       var dot = document.createElement('span');
       dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' + (ativo ? '#45aaf2' : '#fc5c65') + ';flex-shrink:0;';
 
       var lbl = document.createElement('span');
-      lbl.style.cssText = 'flex:1;color:' + (ativo ? '#e8edf5' : '#8b97b0') + ';font-size:.88rem;';
+      lbl.style.cssText = 'flex:1;color:' + (ativo ? '#e8edf5' : '#8b97b0') + ';font-size:.88rem;font-weight:600;';
       lbl.textContent = posto;
 
-      // Toggle ativo/inativo este mês
+      var dAtivo = postoAlertaDia(cfg, posto);
+      var bD = document.createElement('button');
+      bD.type = 'button';
+      bD.title = dAtivo ? 'Desativar alerta Dia' : 'Ativar alerta Dia';
+      bD.style.cssText = 'border:1px solid;border-radius:7px;padding:3px 7px;font-size:.72rem;cursor:pointer;' +
+        (dAtivo ? 'background:rgba(255,210,63,.15);color:#ffd23f;border-color:rgba(255,210,63,.4);' : 'background:rgba(139,151,176,.08);color:#4a5568;border-color:#2a3347;');
+      bD.textContent = '\u2600\uFE0F';
+      (function(p){ bD.onclick = function(){ togglePostoTurno(p,'dia'); }; })(posto);
+
+      var nAtivo = postoAlertaNoite(cfg, posto);
+      var bN = document.createElement('button');
+      bN.type = 'button';
+      bN.title = nAtivo ? 'Desativar alerta Noite' : 'Ativar alerta Noite';
+      bN.style.cssText = 'border:1px solid;border-radius:7px;padding:3px 7px;font-size:.72rem;cursor:pointer;' +
+        (nAtivo ? 'background:rgba(100,130,255,.15);color:#7c8fff;border-color:rgba(100,130,255,.4);' : 'background:rgba(139,151,176,.08);color:#4a5568;border-color:#2a3347;');
+      bN.textContent = '\uD83C\uDF19';
+      (function(p){ bN.onclick = function(){ togglePostoTurno(p,'noite'); }; })(posto);
+
       var toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
       toggleBtn.title = ativo ? 'Desativar alerta este mês' : 'Ativar alerta este mês';
-      toggleBtn.style.cssText = 'border:none;border-radius:7px;padding:4px 9px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;' +
+      toggleBtn.style.cssText = 'border:none;border-radius:7px;padding:3px 8px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;' +
         (ativo ? 'background:rgba(38,222,129,.15);color:#26de81;' : 'background:rgba(252,92,101,.15);color:#fc5c65;');
-      toggleBtn.textContent = ativo ? '✅ Ativo' : '⏸ Inativo';
+      toggleBtn.textContent = ativo ? '\u2705' : '\u23F8';
       toggleBtn.onclick = function() { togglePostoMes(posto); };
 
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.style.cssText = 'border:none;background:rgba(139,151,176,.1);color:#8b97b0;border-radius:7px;padding:4px 8px;font-size:.78rem;font-weight:700;cursor:pointer;';
-      btn.textContent = '✕';
+      btn.style.cssText = 'border:none;background:rgba(139,151,176,.1);color:#8b97b0;border-radius:7px;padding:3px 7px;font-size:.78rem;font-weight:700;cursor:pointer;';
+      btn.textContent = '\u2715';
       btn.title = 'Remover posto monitorado';
       btn.onclick = function() {
-        cfg.postos.splice(idx, 1);
-        saveConfig(cfg);
-        renderBicoPostosMonitorados();
-        renderConfigPostos();
-        renderCadAlertasPostos();
-        updateHeaderBadge();
-        if (typeof window.showToast === 'function') window.showToast('🗑️ Posto removido dos monitorados.', 'error');
+        cfg.postos.splice(idx, 1); saveConfig(cfg);
+        renderBicoPostosMonitorados(); renderConfigPostos(); renderCadAlertasPostos(); updateHeaderBadge();
+        if (typeof window.showToast === 'function') window.showToast('\uD83D\uDDD1\uFE0F Posto removido dos monitorados.', 'error');
       };
 
-      row.appendChild(dot);
-      row.appendChild(lbl);
-      row.appendChild(toggleBtn);
-      row.appendChild(btn);
+      // Linha 1: dot + nome + ☀️ 🌙 + ativo + ✕
+      var linha1 = document.createElement('div');
+      linha1.style.cssText = 'display:flex;align-items:center;gap:6px;';
+      linha1.appendChild(dot);
+      linha1.appendChild(lbl);
+      linha1.appendChild(bD);
+      linha1.appendChild(bN);
+      linha1.appendChild(toggleBtn);
+      linha1.appendChild(btn);
+
+      // Linha 2: Par / Ímpar / Todo
+      var linha2 = makeEscalaDiaButtons(cfg, posto);
+
+      row.appendChild(linha1);
+      row.appendChild(linha2);
       list.appendChild(row);
     });
   }
@@ -8198,7 +8330,7 @@ var FIRESTORE_DOC_ID     = 'dados';
     var btnSalvar  = document.getElementById('btn-bico-add-posto-mon-salvar');
     var btnCancelar= document.getElementById('btn-bico-add-posto-mon-cancelar');
 
-    if (!btnAdd || !addWrap) return;
+    if (!btnAdd || !addWrap) { renderBicoPostosMonitorados(); return; }
 
     btnAdd.addEventListener('click', function() {
       addWrap.style.display = 'flex';
@@ -8286,45 +8418,69 @@ var FIRESTORE_DOC_ID     = 'dados';
       cfg.postos.forEach(function(posto, idx) {
         var ativo = postoAtivoEsteMes(cfg, posto);
         var row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;background:#10151e;border:1px solid ' +
+        row.style.cssText = 'display:flex;flex-direction:column;gap:6px;background:#10151e;border:1px solid ' +
           (ativo ? '#2a3347' : 'rgba(252,92,101,.25)') + ';border-radius:10px;padding:8px 12px;opacity:' + (ativo ? '1' : '0.6') + ';';
 
         var dot = document.createElement('span');
         dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' + (ativo ? '#26de81' : '#fc5c65') + ';flex-shrink:0;';
 
         var lbl = document.createElement('span');
-        lbl.style.cssText = 'flex:1;color:' + (ativo ? '#e8edf5' : '#8b97b0') + ';font-size:.88rem;';
+        lbl.style.cssText = 'flex:1;color:' + (ativo ? '#e8edf5' : '#8b97b0') + ';font-size:.88rem;font-weight:600;';
         lbl.textContent = posto;
 
-        // Toggle ativo/inativo este mês
+        var dOn = postoAlertaDia(cfg, posto);
+        var bDia = document.createElement('button');
+        bDia.type = 'button';
+        bDia.title = dOn ? 'Desativar alerta Dia' : 'Ativar alerta Dia';
+        bDia.style.cssText = 'border:1px solid;border-radius:7px;padding:3px 7px;font-size:.72rem;cursor:pointer;' +
+          (dOn ? 'background:rgba(255,210,63,.15);color:#ffd23f;border-color:rgba(255,210,63,.4);' : 'background:rgba(139,151,176,.08);color:#4a5568;border-color:#2a3347;');
+        bDia.textContent = '\u2600\uFE0F';
+        (function(p){ bDia.onclick = function(){ togglePostoTurno(p,'dia'); }; })(posto);
+
+        var nOn = postoAlertaNoite(cfg, posto);
+        var bNoite = document.createElement('button');
+        bNoite.type = 'button';
+        bNoite.title = nOn ? 'Desativar alerta Noite' : 'Ativar alerta Noite';
+        bNoite.style.cssText = 'border:1px solid;border-radius:7px;padding:3px 7px;font-size:.72rem;cursor:pointer;' +
+          (nOn ? 'background:rgba(100,130,255,.15);color:#7c8fff;border-color:rgba(100,130,255,.4);' : 'background:rgba(139,151,176,.08);color:#4a5568;border-color:#2a3347;');
+        bNoite.textContent = '\uD83C\uDF19';
+        (function(p){ bNoite.onclick = function(){ togglePostoTurno(p,'noite'); }; })(posto);
+
         var toggleBtn = document.createElement('button');
         toggleBtn.type = 'button';
         toggleBtn.title = ativo ? 'Desativar alerta este mês' : 'Ativar alerta este mês';
-        toggleBtn.style.cssText = 'border:none;border-radius:7px;padding:4px 9px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;' +
+        toggleBtn.style.cssText = 'border:none;border-radius:7px;padding:3px 8px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;' +
           (ativo ? 'background:rgba(38,222,129,.15);color:#26de81;' : 'background:rgba(252,92,101,.15);color:#fc5c65;');
-        toggleBtn.textContent = ativo ? '✅ Ativo' : '⏸ Inativo';
+        toggleBtn.textContent = ativo ? '\u2705' : '\u23F8';
         toggleBtn.onclick = function() { togglePostoMes(posto); };
 
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.style.cssText = 'border:none;background:rgba(139,151,176,.1);color:#8b97b0;border-radius:7px;padding:4px 8px;font-size:.78rem;font-weight:700;cursor:pointer;';
-        btn.textContent = '✕';
+        btn.style.cssText = 'border:none;background:rgba(139,151,176,.1);color:#8b97b0;border-radius:7px;padding:3px 7px;font-size:.78rem;font-weight:700;cursor:pointer;';
+        btn.textContent = '\u2715';
         btn.title = 'Remover posto monitorado';
         btn.onclick = function() {
-          cfg.postos.splice(idx, 1);
-          saveConfig(cfg);
-          renderCadAlertasPostos();
-          renderCadAlertasToggles();
-          renderBicoPostosMonitorados();
-          renderConfigPostos();
-          updateHeaderBadge();
-          if (typeof window.showToast === 'function') window.showToast('🗑️ Posto removido dos monitorados.', 'error');
+          cfg.postos.splice(idx, 1); saveConfig(cfg);
+          renderCadAlertasPostos(); renderCadAlertasToggles();
+          renderBicoPostosMonitorados(); renderConfigPostos(); updateHeaderBadge();
+          if (typeof window.showToast === 'function') window.showToast('\uD83D\uDDD1\uFE0F Posto removido dos monitorados.', 'error');
         };
 
-        row.appendChild(dot);
-        row.appendChild(lbl);
-        row.appendChild(toggleBtn);
-        row.appendChild(btn);
+        // Linha 1: dot + nome + ☀️ 🌙 + ativo + ✕
+        var linha1 = document.createElement('div');
+        linha1.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        linha1.appendChild(dot);
+        linha1.appendChild(lbl);
+        linha1.appendChild(bDia);
+        linha1.appendChild(bNoite);
+        linha1.appendChild(toggleBtn);
+        linha1.appendChild(btn);
+
+        // Linha 2: Par / Ímpar / Todo
+        var linha2 = makeEscalaDiaButtons(cfg, posto);
+
+        row.appendChild(linha1);
+        row.appendChild(linha2);
         list.appendChild(row);
       });
     }
@@ -8365,7 +8521,7 @@ var FIRESTORE_DOC_ID     = 'dados';
     var btnDia      = document.getElementById('cad-toggle-dia');
     var btnNoite    = document.getElementById('cad-toggle-noite');
 
-    if (!btnAddPosto) return; // aba não existe no DOM
+    if (!btnAddPosto) { renderCadAlertasPostos(); renderCadAlertasToggles(); return; } // aba não existe no DOM
 
     function adicionarPostoCad() {
       var val = (inputPosto ? inputPosto.value : '').trim();

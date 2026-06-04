@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.pjtecnologiaesistemas_dotcom.twa",
+        "sha256_cert_fingerprints": ["59:30:6F:CC:23:C3:C2:D1:69:65:0C:9A:6C:B1:97:D5:DF:26:B0:2B:BF:10:43:C2:63:88:8B:E0:49:55:1E:62"]
+      }
+    }]

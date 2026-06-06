@@ -6929,6 +6929,22 @@ var FIRESTORE_DOC_ID     = 'dados';
           }
         });
 
+        // Sincroniza configuração de alertas/postos monitorados entre dispositivos
+        if (data['ft_alert_config'] !== undefined) {
+          try {
+            var cfgRemoto = data['ft_alert_config'];
+            var cfgLocal  = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
+            // Só sobrescreve se o conteúdo for diferente (evita loop)
+            if (JSON.stringify(cfgRemoto) !== JSON.stringify(cfgLocal)) {
+              localStorage.setItem('ft_alert_config', JSON.stringify(cfgRemoto));
+              // Recarrega os painéis de alertas se as funções já existirem
+              if (typeof window.renderConfigPostos          === 'function') window.renderConfigPostos();
+              if (typeof window.renderCadAlertasPostos      === 'function') window.renderCadAlertasPostos();
+              if (typeof window.renderBicoPostosMonitorados === 'function') window.renderBicoPostosMonitorados();
+            }
+          } catch (e) {}
+        }
+
         // Notifica a UI (fromSnapshot=true para não exibir toast)
         if (typeof window.onSyncComplete === 'function') {
           window.onSyncComplete(true);
@@ -7369,6 +7385,18 @@ var FIRESTORE_DOC_ID     = 'dados';
 
   function saveConfig(cfg) {
     try { localStorage.setItem(LS_CONFIG, JSON.stringify(cfg)); } catch (e) {}
+    // Sincroniza com Firestore para que todos os dispositivos recebam a config
+    try {
+      if (window.firebase) {
+        var _db = firebase.firestore();
+        var _update = {};
+        _update[LS_CONFIG] = cfg;
+        _db.collection(window.FIRESTORE_COLLECTION || 'folga_trabalhada')
+           .doc(window.FIRESTORE_DOC_ID || 'dados')
+           .set(_update, { merge: true })
+           .catch(function(e){ console.warn('[AlertSync] Falha ao salvar config no Firestore:', e); });
+      }
+    } catch (e) {}
   }
 
   /* ── Helpers de ativo/inativo por mês ─────────────────────── */
@@ -8597,6 +8625,11 @@ var FIRESTORE_DOC_ID     = 'dados';
     checkNow:   function () { clearSnoozed(); checkAndAlert(); },
     openConfig: openConfigModal
   };
+
+  // Expõe funções de render ao window para sincronização cross-device
+  window.renderConfigPostos          = renderConfigPostos;
+  window.renderCadAlertasPostos      = renderCadAlertasPostos;
+  window.renderBicoPostosMonitorados = renderBicoPostosMonitorados;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

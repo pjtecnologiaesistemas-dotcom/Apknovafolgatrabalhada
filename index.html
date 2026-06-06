@@ -6945,11 +6945,14 @@ var FIRESTORE_DOC_ID     = 'dados';
             var remoto = data['ft_alert_config'];
             var local  = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
             if (JSON.stringify(remoto) !== JSON.stringify(local)) {
+              // Aplica config remota sem disparar o bridge (evita loop)
+              window._ftApplyingRemote = true;
               localStorage.setItem('ft_alert_config', JSON.stringify(remoto));
+              window._ftApplyingRemote = false;
               // Recarrega painéis se o módulo de alertas já estiver pronto
               if (typeof window._ftAlertRender === 'function') window._ftAlertRender();
             }
-          } catch (e) {}
+          } catch (e) { window._ftApplyingRemote = false; }
         }
 
         // Notifica a UI (fromSnapshot=true para não exibir toast)
@@ -7392,8 +7395,8 @@ var FIRESTORE_DOC_ID     = 'dados';
 
   function saveConfig(cfg) {
     try { localStorage.setItem(LS_CONFIG, JSON.stringify(cfg)); } catch (e) {}
-    // Dispara sincronização Firestore via bridge global (injetado pelo módulo Firebase)
-    if (typeof window._ftAlertConfigSync === 'function') {
+    // Envia ao Firestore apenas quando a mudança veio do usuário (não de snapshot remoto)
+    if (!window._ftApplyingRemote && typeof window._ftAlertConfigSync === 'function') {
       try { window._ftAlertConfigSync(cfg); } catch (e) {}
     }
   }
@@ -8156,7 +8159,14 @@ var FIRESTORE_DOC_ID     = 'dados';
   /* ── Inicialização ─────────────────────────────────────── */
   function init() {
     carregarEscalasCustomNaMemoria(); // injeta escalas salvas antes de tudo
-    saveConfig(loadConfig()); // garante config padrão
+    // Garante que config local existe, mas NÃO publica no Firestore na abertura
+    // (evitar que o dispositivo B sobrescreva a config do dispositivo A ao iniciar)
+    (function() {
+      try {
+        var raw = localStorage.getItem('ft_alert_config');
+        if (!raw) { localStorage.setItem('ft_alert_config', JSON.stringify(loadConfig())); }
+      } catch(e) {}
+    }());
 
     var bind = function (id, fn) {
       var el = document.getElementById(id);

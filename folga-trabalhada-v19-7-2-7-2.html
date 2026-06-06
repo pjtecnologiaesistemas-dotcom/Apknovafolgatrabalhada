@@ -5083,7 +5083,27 @@
     var totalValor = ftsFiltradas.reduce(function(s, r) { return s + (r.valor || 0); }, 0);
     var media      = totalFTs ? totalValor / totalFTs : 0;
 
-    var rows = [
+    var wb = XLSX.utils.book_new();
+
+    // ── Helper: monta texto do ausente ──────────────────
+    function montaAusente(r) {
+      if (!r.quemFaltou || r.tipo === 'bico') return '—';
+      var m = r.motivo || '';
+      var mesma = r.quemFaltou.trim().toLowerCase() === (r.substituto || '').trim().toLowerCase();
+      var prefixo = m === 'Cobertura de Férias'
+        ? (mesma ? 'Férias' : 'Cobertura de Férias')
+        : m === 'Atestado'              ? 'Atestado'
+        : m === 'Suspensão'             ? 'Suspensão'
+        : m === 'Afastamento'           ? 'Afastamento'
+        : m === 'Folga do Vigia'        ? 'Folga'
+        : m === 'Remanejamento Interno' ? 'Remanejamento'
+        : m === 'Falta de Efetivo'      ? 'Falta de Efetivo'
+        : 'Faltou';
+      return prefixo + ': ' + r.quemFaltou;
+    }
+
+    // ── ABA 1: Lançamentos Detalhados (igual ao PDF) ────
+    var rowsDetalhe = [
       ['RELATÓRIO DE LANÇAMENTOS — PJ Tecnologia e Sistemas'],
       ['Gerado em: ' + dataHoje],
       [],
@@ -5096,60 +5116,72 @@
       []
     ];
 
-    var merges = [
+    var mergesDetalhe = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
       { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } }
     ];
-    var cols;
 
     if (modoDetalhe) {
-      rows.push(['Colaborador: ' + dashNomeFiltro]);
-      rows.push([]);
-      rows.push(['#', 'Data / Hora', 'Posto', 'Tipo/Motivo', 'Ausente', 'Valor a Receber (R$)']);
-      var sorted = ftsFiltradas.slice().sort(function(a, b) {
-        return new Date(a.dataHora || a.criadoEm) - new Date(b.dataHora || b.criadoEm);
-      });
-      sorted.forEach(function(r, i) {
-        var dtStr = r.dataHora
-          ? new Date(r.dataHora).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
-          : '—';
-        var tipoMotivo = r.tipo === 'bico' ? 'Bico Fixo' : (r.motivo || '—');
-        var ausenteStr = '—';
-        if (r.quemFaltou && r.tipo !== 'bico') {
-          var m = r.motivo || '';
-          var mesma = r.quemFaltou.trim().toLowerCase() === (r.substituto || '').trim().toLowerCase();
-          var prefixo = m === 'Cobertura de Férias'
-            ? (mesma ? 'Férias' : 'Cobertura de Férias')
-            : m === 'Atestado'              ? 'Atestado'
-            : m === 'Suspensão'             ? 'Suspensão'
-            : m === 'Afastamento'           ? 'Afastamento'
-            : m === 'Folga do Vigia'        ? 'Folga'
-            : m === 'Remanejamento Interno' ? 'Remanejamento'
-            : m === 'Falta de Efetivo'      ? 'Falta de Efetivo'
-            : 'Faltou';
-          ausenteStr = prefixo + ': ' + r.quemFaltou;
-        }
-        rows.push([i + 1, dtStr, r.posto || '—', tipoMotivo, ausenteStr, r.valor || 0]);
-      });
-      rows.push([]);
-      rows.push(['', '', '', 'TOTAL A RECEBER', '', totalValor]);
-      cols = [{ wch: 4 }, { wch: 20 }, { wch: 28 }, { wch: 22 }, { wch: 28 }, { wch: 22 }];
-    } else {
-      rows.push(['#', viewLabel, 'Qtd. Lançamentos', 'Valor a Receber (R$)']);
-      var data = buildDatasetAll(ftsFiltradas);
-      data.forEach(function(item, i) {
-        rows.push([i + 1, item.nome, item.qtd, item.valor]);
-      });
-      rows.push([]);
-      rows.push(['', 'TOTAL GERAL', totalFTs, totalValor]);
-      cols = [{ wch: 4 }, { wch: 36 }, { wch: 18 }, { wch: 22 }];
+      rowsDetalhe.push(['Colaborador: ' + dashNomeFiltro]);
+      rowsDetalhe.push([]);
     }
 
-    var ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols']   = cols;
-    ws['!merges'] = merges;
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, modoDetalhe ? dashNomeFiltro.slice(0, 31) : viewLabelPl);
+    rowsDetalhe.push(['#', 'Colaborador', 'Data / Hora', 'Posto', 'Tipo/Motivo', 'Ausente', 'Valor a Receber (R$)']);
+
+    var sorted = ftsFiltradas.slice().sort(function(a, b) {
+      return new Date(a.dataHora || a.criadoEm) - new Date(b.dataHora || b.criadoEm);
+    });
+
+    sorted.forEach(function(r, i) {
+      var dtStr = r.dataHora
+        ? new Date(r.dataHora).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' })
+        : '—';
+      var colaborador = r.tipo === 'bico' ? (r.colaborador || '—') : (r.substituto || '—');
+      var tipoMotivo  = r.tipo === 'bico' ? 'Bico Fixo' : (r.motivo || '—');
+      rowsDetalhe.push([i + 1, colaborador, dtStr, r.posto || '—', tipoMotivo, montaAusente(r), r.valor || 0]);
+    });
+
+    rowsDetalhe.push([]);
+    rowsDetalhe.push(['', '', '', '', 'TOTAL A RECEBER', '', totalValor]);
+
+    var wsDetalhe = XLSX.utils.aoa_to_sheet(rowsDetalhe);
+    wsDetalhe['!cols']   = [{ wch: 4 }, { wch: 30 }, { wch: 20 }, { wch: 28 }, { wch: 24 }, { wch: 28 }, { wch: 22 }];
+    wsDetalhe['!merges'] = mergesDetalhe;
+    var nomeAbaDetalhe = modoDetalhe ? ('Det_' + dashNomeFiltro).slice(0, 31) : 'Lançamentos Detalhados';
+    XLSX.utils.book_append_sheet(wb, wsDetalhe, nomeAbaDetalhe);
+
+    // ── ABA 2: Resumo por Colaborador/Posto ─────────────
+    var rowsResumo = [
+      ['RESUMO — ' + viewLabelPl.toUpperCase()],
+      ['Gerado em: ' + dataHoje],
+      [],
+      ['Fonte:', fonteLabel, 'Visão:', viewLabelPl, 'Filtro:', nomeLabel, 'Período:', periodoLabel],
+      [],
+      ['KPIs'],
+      ['Total de Lançamentos', totalFTs],
+      ['Valor Total (R$)', totalValor],
+      ['Média por Lançamento (R$)', media],
+      [],
+      ['#', viewLabel, 'Qtd. Lançamentos', 'Valor a Receber (R$)']
+    ];
+
+    var mergesResumo = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } }
+    ];
+
+    var dataResumo = buildDatasetAll(ftsFiltradas);
+    dataResumo.forEach(function(item, i) {
+      rowsResumo.push([i + 1, item.nome, item.qtd, item.valor]);
+    });
+    rowsResumo.push([]);
+    rowsResumo.push(['', 'TOTAL GERAL', totalFTs, totalValor]);
+
+    var wsResumo = XLSX.utils.aoa_to_sheet(rowsResumo);
+    wsResumo['!cols']   = [{ wch: 4 }, { wch: 36 }, { wch: 18 }, { wch: 22 }];
+    wsResumo['!merges'] = mergesResumo;
+    XLSX.utils.book_append_sheet(wb, wsResumo, ('Resumo ' + viewLabelPl).slice(0, 31));
+
     var nomeFiltroArq = dashNomeFiltro ? '_' + dashNomeFiltro.replace(/\s+/g, '_') : '';
     XLSX.writeFile(wb, 'Dashboard_' + viewLabelPl + nomeFiltroArq + '_' + dataHojeArq + '.xlsx');
     showToast('📊 Excel gerado com sucesso!', 'success');
@@ -6929,6 +6961,22 @@ var FIRESTORE_DOC_ID     = 'dados';
           }
         });
 
+        // Sincroniza configuração de alertas/postos monitorados entre dispositivos
+        if (data['ft_alert_config'] !== undefined) {
+          try {
+            var cfgRemoto = data['ft_alert_config'];
+            var cfgLocal  = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
+            // Só sobrescreve se o conteúdo for diferente (evita loop)
+            if (JSON.stringify(cfgRemoto) !== JSON.stringify(cfgLocal)) {
+              localStorage.setItem('ft_alert_config', JSON.stringify(cfgRemoto));
+              // Recarrega os painéis de alertas se as funções já existirem
+              if (typeof window.renderConfigPostos          === 'function') window.renderConfigPostos();
+              if (typeof window.renderCadAlertasPostos      === 'function') window.renderCadAlertasPostos();
+              if (typeof window.renderBicoPostosMonitorados === 'function') window.renderBicoPostosMonitorados();
+            }
+          } catch (e) {}
+        }
+
         // Notifica a UI (fromSnapshot=true para não exibir toast)
         if (typeof window.onSyncComplete === 'function') {
           window.onSyncComplete(true);
@@ -7369,6 +7417,18 @@ var FIRESTORE_DOC_ID     = 'dados';
 
   function saveConfig(cfg) {
     try { localStorage.setItem(LS_CONFIG, JSON.stringify(cfg)); } catch (e) {}
+    // Sincroniza com Firestore para que todos os dispositivos recebam a config
+    try {
+      if (window.firebase) {
+        var _db = firebase.firestore();
+        var _update = {};
+        _update[LS_CONFIG] = cfg;
+        _db.collection(window.FIRESTORE_COLLECTION || 'folga_trabalhada')
+           .doc(window.FIRESTORE_DOC_ID || 'dados')
+           .set(_update, { merge: true })
+           .catch(function(e){ console.warn('[AlertSync] Falha ao salvar config no Firestore:', e); });
+      }
+    } catch (e) {}
   }
 
   /* ── Helpers de ativo/inativo por mês ─────────────────────── */
@@ -8597,6 +8657,11 @@ var FIRESTORE_DOC_ID     = 'dados';
     checkNow:   function () { clearSnoozed(); checkAndAlert(); },
     openConfig: openConfigModal
   };
+
+  // Expõe funções de render ao window para sincronização cross-device
+  window.renderConfigPostos          = renderConfigPostos;
+  window.renderCadAlertasPostos      = renderCadAlertasPostos;
+  window.renderBicoPostosMonitorados = renderBicoPostosMonitorados;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

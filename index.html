@@ -2129,6 +2129,12 @@
       <button id="cad-alerta-testar" type="button" style="width:100%;border:1px solid rgba(252,92,101,.4);background:rgba(252,92,101,.08);color:#fc5c65;border-radius:10px;padding:11px;font-size:.85rem;font-weight:700;cursor:pointer;transition:background .2s;letter-spacing:.3px;">
         🔔 Testar Alerta Agora
       </button>
+
+      <!-- Diagnóstico de sincronização -->
+      <button id="btn-diag-sync" type="button" onclick="window.diagSync()" style="margin-top:10px;width:100%;border:1px solid rgba(0,200,248,.35);background:rgba(0,200,248,.07);color:#00c8f8;border-radius:10px;padding:11px;font-size:.85rem;font-weight:700;cursor:pointer;transition:background .2s;letter-spacing:.3px;">
+        🔧 Diagnóstico &amp; Forçar Sync
+      </button>
+      <div id="diag-sync-log" style="display:none;margin-top:10px;background:#0d1117;border:1px solid #2a3347;border-radius:10px;padding:12px;font-size:.75rem;font-family:monospace;color:#8b97b0;max-height:280px;overflow-y:auto;line-height:1.7;"></div>
     </div>
 
   </div>
@@ -8659,6 +8665,96 @@ function toggleAcc(id) {
   var isOpen = el.classList.contains('open');
   el.classList.toggle('open', !isOpen);
 }
+
+/* ══════════════════════════════════════════════════════════
+   DIAGNÓSTICO & FORÇA-SYNC de Postos Monitorados
+   ══════════════════════════════════════════════════════════ */
+window.diagSync = function () {
+  var log  = document.getElementById('diag-sync-log');
+  if (!log) return;
+  log.style.display = 'block';
+  log.innerHTML = '';
+
+  function line(msg, cor) {
+    var d = document.createElement('div');
+    d.style.color = cor || '#8b97b0';
+    d.textContent = msg;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  line('▶ Iniciando diagnóstico...', '#00c8f8');
+
+  // 1. Firebase SDK carregado?
+  if (typeof firebase === 'undefined') {
+    line('❌ firebase SDK NÃO carregado!', '#fc5c65');
+    return;
+  }
+  line('✅ firebase SDK carregado', '#26de81');
+
+  // 2. Firestore disponível?
+  var db;
+  try { db = firebase.firestore(); line('✅ firestore() OK', '#26de81'); }
+  catch(e) { line('❌ firestore() falhou: ' + e.message, '#fc5c65'); return; }
+
+  // 3. Bridge de escrita existe?
+  if (typeof window._ftAlertConfigSync === 'function') {
+    line('✅ bridge _ftAlertConfigSync presente', '#26de81');
+  } else {
+    line('⚠️ bridge _ftAlertConfigSync AUSENTE — Firebase ainda não conectou', '#f7b731');
+  }
+
+  // 4. Config local
+  var cfgLocal = null;
+  try {
+    cfgLocal = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
+    if (cfgLocal) {
+      line('✅ Config local: ' + (cfgLocal.postos || []).length + ' posto(s): ' + (cfgLocal.postos || []).join(', '), '#26de81');
+    } else {
+      line('⚠️ Config local VAZIA — será usada a padrão', '#f7b731');
+    }
+  } catch(e) { line('❌ Erro ao ler config local: ' + e.message, '#fc5c65'); }
+
+  // 5. Ler config direto do Firestore
+  var COL = window.FIRESTORE_COLLECTION || 'folga_trabalhada';
+  var DOC = window.FIRESTORE_DOC_ID     || 'dados';
+  line('🔍 Lendo ' + COL + '/' + DOC + ' no Firestore...', '#00c8f8');
+
+  db.collection(COL).doc(DOC).get()
+    .then(function(snap) {
+      if (!snap.exists) {
+        line('⚠️ Documento não existe no Firestore ainda', '#f7b731');
+      } else {
+        var data = snap.data();
+        if (data.ft_alert_config) {
+          var postos = (data.ft_alert_config.postos || []);
+          line('✅ Firestore tem ft_alert_config: ' + postos.length + ' posto(s): ' + postos.join(', '), '#26de81');
+        } else {
+          line('⚠️ Firestore NÃO tem ft_alert_config ainda (campo ausente)', '#f7b731');
+        }
+      }
+
+      // 6. Forçar gravação da config local no Firestore
+      if (!cfgLocal) {
+        line('⏭ Sem config local para forçar envio', '#8b97b0');
+        return;
+      }
+      line('🚀 Forçando gravação da config local no Firestore...', '#00c8f8');
+      var upd = { ft_alert_config: cfgLocal };
+      return db.collection(COL).doc(DOC).set(upd, { merge: true });
+    })
+    .then(function() {
+      line('✅ Config gravada no Firestore com sucesso!', '#26de81');
+      line('📡 Os outros dispositivos receberão via onSnapshot automaticamente.', '#26de81');
+      // Recarregar painéis locais
+      if (typeof window._ftAlertRender === 'function') window._ftAlertRender();
+    })
+    .catch(function(e) {
+      line('❌ Erro ao gravar no Firestore: ' + e.message, '#fc5c65');
+      line('💡 Verifique as regras do Firestore (read/write)', '#f7b731');
+    });
+};
+
 </script>
 
 <!-- ── Footer branding PJ Tecnologia ── -->

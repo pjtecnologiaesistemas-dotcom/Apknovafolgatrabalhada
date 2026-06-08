@@ -2129,6 +2129,12 @@
       <button id="cad-alerta-testar" type="button" style="width:100%;border:1px solid rgba(252,92,101,.4);background:rgba(252,92,101,.08);color:#fc5c65;border-radius:10px;padding:11px;font-size:.85rem;font-weight:700;cursor:pointer;transition:background .2s;letter-spacing:.3px;">
         🔔 Testar Alerta Agora
       </button>
+
+      <!-- Diagnóstico de sincronização -->
+      <button id="btn-diag-sync" type="button" onclick="window.diagSync()" style="margin-top:10px;width:100%;border:1px solid rgba(0,200,248,.35);background:rgba(0,200,248,.07);color:#00c8f8;border-radius:10px;padding:11px;font-size:.85rem;font-weight:700;cursor:pointer;letter-spacing:.3px;">
+        🔧 Diagnóstico &amp; Forçar Sync
+      </button>
+      <div id="diag-sync-log" style="display:none;margin-top:10px;background:#0d1117;border:1px solid #2a3347;border-radius:10px;padding:12px;font-size:.75rem;font-family:monospace;color:#8b97b0;max-height:280px;overflow-y:auto;line-height:1.7;"></div>
     </div>
 
   </div>
@@ -5083,27 +5089,7 @@
     var totalValor = ftsFiltradas.reduce(function(s, r) { return s + (r.valor || 0); }, 0);
     var media      = totalFTs ? totalValor / totalFTs : 0;
 
-    var wb = XLSX.utils.book_new();
-
-    // ── Helper: monta texto do ausente ──────────────────
-    function montaAusente(r) {
-      if (!r.quemFaltou || r.tipo === 'bico') return '—';
-      var m = r.motivo || '';
-      var mesma = r.quemFaltou.trim().toLowerCase() === (r.substituto || '').trim().toLowerCase();
-      var prefixo = m === 'Cobertura de Férias'
-        ? (mesma ? 'Férias' : 'Cobertura de Férias')
-        : m === 'Atestado'              ? 'Atestado'
-        : m === 'Suspensão'             ? 'Suspensão'
-        : m === 'Afastamento'           ? 'Afastamento'
-        : m === 'Folga do Vigia'        ? 'Folga'
-        : m === 'Remanejamento Interno' ? 'Remanejamento'
-        : m === 'Falta de Efetivo'      ? 'Falta de Efetivo'
-        : 'Faltou';
-      return prefixo + ': ' + r.quemFaltou;
-    }
-
-    // ── ABA 1: Lançamentos Detalhados (igual ao PDF) ────
-    var rowsDetalhe = [
+    var rows = [
       ['RELATÓRIO DE LANÇAMENTOS — PJ Tecnologia e Sistemas'],
       ['Gerado em: ' + dataHoje],
       [],
@@ -5116,72 +5102,60 @@
       []
     ];
 
-    var mergesDetalhe = [
+    var merges = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
       { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } }
     ];
+    var cols;
 
     if (modoDetalhe) {
-      rowsDetalhe.push(['Colaborador: ' + dashNomeFiltro]);
-      rowsDetalhe.push([]);
+      rows.push(['Colaborador: ' + dashNomeFiltro]);
+      rows.push([]);
+      rows.push(['#', 'Data / Hora', 'Posto', 'Tipo/Motivo', 'Ausente', 'Valor a Receber (R$)']);
+      var sorted = ftsFiltradas.slice().sort(function(a, b) {
+        return new Date(a.dataHora || a.criadoEm) - new Date(b.dataHora || b.criadoEm);
+      });
+      sorted.forEach(function(r, i) {
+        var dtStr = r.dataHora
+          ? new Date(r.dataHora).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+          : '—';
+        var tipoMotivo = r.tipo === 'bico' ? 'Bico Fixo' : (r.motivo || '—');
+        var ausenteStr = '—';
+        if (r.quemFaltou && r.tipo !== 'bico') {
+          var m = r.motivo || '';
+          var mesma = r.quemFaltou.trim().toLowerCase() === (r.substituto || '').trim().toLowerCase();
+          var prefixo = m === 'Cobertura de Férias'
+            ? (mesma ? 'Férias' : 'Cobertura de Férias')
+            : m === 'Atestado'              ? 'Atestado'
+            : m === 'Suspensão'             ? 'Suspensão'
+            : m === 'Afastamento'           ? 'Afastamento'
+            : m === 'Folga do Vigia'        ? 'Folga'
+            : m === 'Remanejamento Interno' ? 'Remanejamento'
+            : m === 'Falta de Efetivo'      ? 'Falta de Efetivo'
+            : 'Faltou';
+          ausenteStr = prefixo + ': ' + r.quemFaltou;
+        }
+        rows.push([i + 1, dtStr, r.posto || '—', tipoMotivo, ausenteStr, r.valor || 0]);
+      });
+      rows.push([]);
+      rows.push(['', '', '', 'TOTAL A RECEBER', '', totalValor]);
+      cols = [{ wch: 4 }, { wch: 20 }, { wch: 28 }, { wch: 22 }, { wch: 28 }, { wch: 22 }];
+    } else {
+      rows.push(['#', viewLabel, 'Qtd. Lançamentos', 'Valor a Receber (R$)']);
+      var data = buildDatasetAll(ftsFiltradas);
+      data.forEach(function(item, i) {
+        rows.push([i + 1, item.nome, item.qtd, item.valor]);
+      });
+      rows.push([]);
+      rows.push(['', 'TOTAL GERAL', totalFTs, totalValor]);
+      cols = [{ wch: 4 }, { wch: 36 }, { wch: 18 }, { wch: 22 }];
     }
 
-    rowsDetalhe.push(['#', 'Colaborador', 'Data / Hora', 'Posto', 'Tipo/Motivo', 'Ausente', 'Valor a Receber (R$)']);
-
-    var sorted = ftsFiltradas.slice().sort(function(a, b) {
-      return new Date(a.dataHora || a.criadoEm) - new Date(b.dataHora || b.criadoEm);
-    });
-
-    sorted.forEach(function(r, i) {
-      var dtStr = r.dataHora
-        ? new Date(r.dataHora).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' })
-        : '—';
-      var colaborador = r.tipo === 'bico' ? (r.colaborador || '—') : (r.substituto || '—');
-      var tipoMotivo  = r.tipo === 'bico' ? 'Bico Fixo' : (r.motivo || '—');
-      rowsDetalhe.push([i + 1, colaborador, dtStr, r.posto || '—', tipoMotivo, montaAusente(r), r.valor || 0]);
-    });
-
-    rowsDetalhe.push([]);
-    rowsDetalhe.push(['', '', '', '', 'TOTAL A RECEBER', '', totalValor]);
-
-    var wsDetalhe = XLSX.utils.aoa_to_sheet(rowsDetalhe);
-    wsDetalhe['!cols']   = [{ wch: 4 }, { wch: 30 }, { wch: 20 }, { wch: 28 }, { wch: 24 }, { wch: 28 }, { wch: 22 }];
-    wsDetalhe['!merges'] = mergesDetalhe;
-    var nomeAbaDetalhe = modoDetalhe ? ('Det_' + dashNomeFiltro).slice(0, 31) : 'Lançamentos Detalhados';
-    XLSX.utils.book_append_sheet(wb, wsDetalhe, nomeAbaDetalhe);
-
-    // ── ABA 2: Resumo por Colaborador/Posto ─────────────
-    var rowsResumo = [
-      ['RESUMO — ' + viewLabelPl.toUpperCase()],
-      ['Gerado em: ' + dataHoje],
-      [],
-      ['Fonte:', fonteLabel, 'Visão:', viewLabelPl, 'Filtro:', nomeLabel, 'Período:', periodoLabel],
-      [],
-      ['KPIs'],
-      ['Total de Lançamentos', totalFTs],
-      ['Valor Total (R$)', totalValor],
-      ['Média por Lançamento (R$)', media],
-      [],
-      ['#', viewLabel, 'Qtd. Lançamentos', 'Valor a Receber (R$)']
-    ];
-
-    var mergesResumo = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } }
-    ];
-
-    var dataResumo = buildDatasetAll(ftsFiltradas);
-    dataResumo.forEach(function(item, i) {
-      rowsResumo.push([i + 1, item.nome, item.qtd, item.valor]);
-    });
-    rowsResumo.push([]);
-    rowsResumo.push(['', 'TOTAL GERAL', totalFTs, totalValor]);
-
-    var wsResumo = XLSX.utils.aoa_to_sheet(rowsResumo);
-    wsResumo['!cols']   = [{ wch: 4 }, { wch: 36 }, { wch: 18 }, { wch: 22 }];
-    wsResumo['!merges'] = mergesResumo;
-    XLSX.utils.book_append_sheet(wb, wsResumo, ('Resumo ' + viewLabelPl).slice(0, 31));
-
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']   = cols;
+    ws['!merges'] = merges;
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, modoDetalhe ? dashNomeFiltro.slice(0, 31) : viewLabelPl);
     var nomeFiltroArq = dashNomeFiltro ? '_' + dashNomeFiltro.replace(/\s+/g, '_') : '';
     XLSX.writeFile(wb, 'Dashboard_' + viewLabelPl + nomeFiltroArq + '_' + dataHojeArq + '.xlsx');
     showToast('📊 Excel gerado com sucesso!', 'success');
@@ -6946,6 +6920,16 @@ var FIRESTORE_DOC_ID     = 'dados';
       });
     }
 
+    // ── Bridge de escrita: saveConfig chama esta função após Firebase conectar ──
+    window._ftAlertConfigSync = function (cfg) {
+      var upd = {};
+      upd['ft_alert_config'] = cfg;
+      db.collection(FIRESTORE_COLLECTION)
+        .doc(FIRESTORE_DOC_ID)
+        .set(upd, { merge: true })
+        .catch(function (e) { console.warn('[AlertSync] Erro ao gravar config:', e); });
+    };
+
     // ── Listener em tempo real (recebe mudanças de outros dispositivos) ──
     db.collection(FIRESTORE_COLLECTION)
       .doc(FIRESTORE_DOC_ID)
@@ -6961,20 +6945,18 @@ var FIRESTORE_DOC_ID     = 'dados';
           }
         });
 
-        // Sincroniza configuração de alertas/postos monitorados entre dispositivos
+        // Recebe config de alertas/postos monitorados de outros dispositivos
         if (data['ft_alert_config'] !== undefined) {
           try {
-            var cfgRemoto = data['ft_alert_config'];
-            var cfgLocal  = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
-            // Só sobrescreve se o conteúdo for diferente (evita loop)
-            if (JSON.stringify(cfgRemoto) !== JSON.stringify(cfgLocal)) {
-              localStorage.setItem('ft_alert_config', JSON.stringify(cfgRemoto));
-              // Recarrega os painéis de alertas se as funções já existirem
-              if (typeof window.renderConfigPostos          === 'function') window.renderConfigPostos();
-              if (typeof window.renderCadAlertasPostos      === 'function') window.renderCadAlertasPostos();
-              if (typeof window.renderBicoPostosMonitorados === 'function') window.renderBicoPostosMonitorados();
+            var remoto = data['ft_alert_config'];
+            var local  = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
+            if (JSON.stringify(remoto) !== JSON.stringify(local)) {
+              window._ftApplyingRemote = true;
+              localStorage.setItem('ft_alert_config', JSON.stringify(remoto));
+              window._ftApplyingRemote = false;
+              if (typeof window._ftAlertRender === 'function') window._ftAlertRender();
             }
-          } catch (e) {}
+          } catch (e) { window._ftApplyingRemote = false; }
         }
 
         // Notifica a UI (fromSnapshot=true para não exibir toast)
@@ -7417,18 +7399,10 @@ var FIRESTORE_DOC_ID     = 'dados';
 
   function saveConfig(cfg) {
     try { localStorage.setItem(LS_CONFIG, JSON.stringify(cfg)); } catch (e) {}
-    // Sincroniza com Firestore para que todos os dispositivos recebam a config
-    try {
-      if (window.firebase) {
-        var _db = firebase.firestore();
-        var _update = {};
-        _update[LS_CONFIG] = cfg;
-        _db.collection(window.FIRESTORE_COLLECTION || 'folga_trabalhada')
-           .doc(window.FIRESTORE_DOC_ID || 'dados')
-           .set(_update, { merge: true })
-           .catch(function(e){ console.warn('[AlertSync] Falha ao salvar config no Firestore:', e); });
-      }
-    } catch (e) {}
+    // Envia ao Firestore apenas quando mudança veio do usuário (não de snapshot remoto)
+    if (!window._ftApplyingRemote && typeof window._ftAlertConfigSync === 'function') {
+      try { window._ftAlertConfigSync(cfg); } catch (e) {}
+    }
   }
 
   /* ── Helpers de ativo/inativo por mês ─────────────────────── */
@@ -7553,9 +7527,9 @@ var FIRESTORE_DOC_ID     = 'dados';
   }
 
   /* ══════════════════════════════════════════════════════════
-     LÓGICA CENTRAL: detecta TODOS os turnos ativos agora
+     LÓGICA CENTRAL: detecta turnos ativos agora E turnos
+     encerrados nas últimas 24h que ainda não têm FT lançada.
      Retorna array de { posto, periodo, dataRef, entrada, saida }
-     (pode retornar 2 itens em dias de rendição 24h)
      ══════════════════════════════════════════════════════════ */
   function turnosAtivosNoPosto(posto) {
     var cfg_escala = getEscalaPosto(posto);
@@ -7567,44 +7541,41 @@ var FIRESTORE_DOC_ID     = 'dados';
     var aMin    = agora.getHours() * 60 + agora.getMinutes();
     var ativos  = [];
 
-    /* Candidatos: turnos de HOJE e de ONTEM (que cruzam meia-noite) */
+    /* Candidatos: turnos de HOJE, ONTEM e ANTEONTEM
+       (cobre turnos longos encerrados que ainda não foram lançados) */
     var candidatos = [];
 
-    // Turnos que começaram HOJE
-    var diaHoje  = agora.getDay();
-    var hoje     = agora;
-    (semana[diaHoje] || []).forEach(function (t) {
-      candidatos.push({ t: t, dataRef: dateKey(hoje), iniciouOntem: false });
-    });
+    // Janela de verificação: 24 horas atrás
+    var JANELA_HORAS = 24;
 
-    // Turnos que começaram ONTEM e cruzam hoje (nextDay)
-    var ontem    = addDays(agora, -1);
-    var diaOntem = ontem.getDay();
-    (semana[diaOntem] || []).forEach(function (t) {
-      if (t.nd) candidatos.push({ t: t, dataRef: dateKey(ontem), iniciouOntem: true });
-    });
+    for (var diasAtras = 0; diasAtras <= 2; diasAtras++) {
+      var diaRef  = addDays(agora, -diasAtras);
+      var dowRef  = diaRef.getDay();
+      (semana[dowRef] || []).forEach(function (t) {
+        candidatos.push({ t: t, dataRef: dateKey(diaRef), diasAtras: diasAtras });
+      });
+    }
 
     candidatos.forEach(function (c) {
       var t = c.t;
-      var ativo = false;
 
-      if (c.iniciouOntem) {
-        /* Turno começou ontem, termina hoje: ativo se agora < saída */
-        ativo = (aMin < t.s);
-      } else if (t.nd) {
-        /* Turno começa hoje, termina amanhã: ativo se agora >= entrada */
-        ativo = (aMin >= t.e);
-      } else {
-        /* Mesmo dia: ativo se entrada <= agora < saída */
-        ativo = (aMin >= t.e && aMin < t.s);
-      }
+      /* Calcula o timestamp absoluto de início e fim do turno */
+      var dRef     = new Date(c.dataRef + 'T00:00:00');
+      var tsEntrada = dRef.getTime() + t.e * 60000;
+      var tsSaida   = dRef.getTime() + t.s * 60000 + (t.nd ? 24*3600000 : 0);
+      var tsAgora   = agora.getTime();
 
-      if (!ativo) return;
+      /* O turno deve ter começado no passado */
+      if (tsEntrada > tsAgora) return;
+
+      /* O turno deve ter encerrado há no máximo JANELA_HORAS horas */
+      var horasDesdeEncerramento = (tsAgora - tsSaida) / 3600000;
+      if (tsSaida < tsAgora && horasDesdeEncerramento > JANELA_HORAS) return;
 
       /* Aplica regra especial de FT (ex: dias ímpares) */
       if (regraFT && !regraFT(c.dataRef)) return;
 
-      /* Aplica regra de par/ímpar configurada pelo usuário (sobrescreve regraFT) */
+      /* Aplica regra de par/ímpar configurada pelo usuário */
       var cfgCheck = loadConfig();
       var regraUser = getEscalaDiaPosto(cfgCheck, posto);
       if (regraUser !== 'todo') {
@@ -7785,7 +7756,14 @@ var FIRESTORE_DOC_ID     = 'dados';
     return horarios[h] === true;
   }
   function scheduledCheck() {
-    if (isAlertTime()) checkAndAlert();
+    /* Dispara se for horário de entrada de algum turno (janela 5min)
+       OU se já há pendências em aberto (turnos anteriores sem FT). */
+    if (isAlertTime()) { checkAndAlert(); return; }
+    /* Fora da janela: verifica silenciosamente se há pendências antigas */
+    if (!isSnoozed()) {
+      var p = getPendencias();
+      if (p.length) showAlertModal(p);
+    }
   }
 
   /* ── Badge no header ───────────────────────────────────── */
@@ -8189,14 +8167,26 @@ var FIRESTORE_DOC_ID     = 'dados';
   /* ── Inicialização ─────────────────────────────────────── */
   function init() {
     carregarEscalasCustomNaMemoria(); // injeta escalas salvas antes de tudo
-    saveConfig(loadConfig()); // garante config padrão
+    // Garante config local SEM publicar no Firestore (evita sobrescrever config de outros dispositivos)
+    (function() {
+      try {
+        var raw = localStorage.getItem('ft_alert_config');
+        if (!raw) { localStorage.setItem('ft_alert_config', JSON.stringify(loadConfig())); }
+      } catch(e) {}
+    }());
 
     var bind = function (id, fn) {
       var el = document.getElementById(id);
       if (el) el.addEventListener('click', fn);
     };
 
-    bind('ft-alert-dismiss', function () { clearSnoozed(); hideAlertModal(); });
+    bind('ft-alert-dismiss', function () {
+      /* Fecha o modal mas NÃO apaga as pendências.
+         Se a FT não for lançada, o alerta voltará no próximo ciclo. */
+      hideAlertModal();
+      if (typeof window.showToast === 'function')
+        window.showToast('✔ Ok! O alerta voltará se a FT não for lançada.', 'success');
+    });
 
     bind('ft-alert-snooze', function () {
       setSnoozed(60);
@@ -8658,10 +8648,12 @@ var FIRESTORE_DOC_ID     = 'dados';
     openConfig: openConfigModal
   };
 
-  // Expõe funções de render ao window para sincronização cross-device
-  window.renderConfigPostos          = renderConfigPostos;
-  window.renderCadAlertasPostos      = renderCadAlertasPostos;
-  window.renderBicoPostosMonitorados = renderBicoPostosMonitorados;
+  // Expõe render ao window para o listener Firestore atualizar a UI
+  window._ftAlertRender = function () {
+    if (typeof renderConfigPostos          === 'function') renderConfigPostos();
+    if (typeof renderCadAlertasPostos      === 'function') renderCadAlertasPostos();
+    if (typeof renderBicoPostosMonitorados === 'function') renderBicoPostosMonitorados();
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -8677,6 +8669,75 @@ function toggleAcc(id) {
   var isOpen = el.classList.contains('open');
   el.classList.toggle('open', !isOpen);
 }
+
+/* ══ DIAGNÓSTICO & FORÇA-SYNC de Postos Monitorados ══ */
+window.diagSync = function () {
+  var log = document.getElementById('diag-sync-log');
+  if (!log) return;
+  log.style.display = 'block';
+  log.innerHTML = '';
+  function line(msg, cor) {
+    var d = document.createElement('div');
+    d.style.color = cor || '#8b97b0';
+    d.textContent = msg;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  }
+  line('▶ Iniciando diagnóstico...', '#00c8f8');
+  if (typeof firebase === 'undefined') {
+    line('❌ firebase SDK NÃO carregado!', '#fc5c65'); return;
+  }
+  line('✅ firebase SDK carregado', '#26de81');
+  var db;
+  try { db = firebase.firestore(); line('✅ firestore() OK', '#26de81'); }
+  catch(e) { line('❌ firestore() falhou: ' + e.message, '#fc5c65'); return; }
+  if (typeof window._ftAlertConfigSync === 'function') {
+    line('✅ bridge _ftAlertConfigSync presente', '#26de81');
+  } else {
+    line('⚠️ bridge _ftAlertConfigSync AUSENTE — Firebase ainda não conectou', '#f7b731');
+  }
+  var cfgLocal = null;
+  try {
+    cfgLocal = JSON.parse(localStorage.getItem('ft_alert_config') || 'null');
+    if (cfgLocal) {
+      line('✅ Config local: ' + (cfgLocal.postos||[]).length + ' posto(s): ' + (cfgLocal.postos||[]).join(', '), '#26de81');
+    } else {
+      line('⚠️ Config local VAZIA', '#f7b731');
+    }
+  } catch(e) { line('❌ Erro ao ler config local: ' + e.message, '#fc5c65'); }
+  var COL = window.FIRESTORE_COLLECTION || 'folga_trabalhada';
+  var DOC = window.FIRESTORE_DOC_ID     || 'dados';
+  line('🔍 Lendo ' + COL + '/' + DOC + ' no Firestore...', '#00c8f8');
+  db.collection(COL).doc(DOC).get()
+    .then(function(snap) {
+      if (!snap.exists) {
+        line('⚠️ Documento não existe no Firestore ainda', '#f7b731');
+      } else {
+        var data = snap.data();
+        if (data.ft_alert_config) {
+          var postos = (data.ft_alert_config.postos || []);
+          line('✅ Firestore tem ft_alert_config: ' + postos.length + ' posto(s): ' + postos.join(', '), '#26de81');
+        } else {
+          line('⚠️ Firestore NÃO tem ft_alert_config (campo ausente)', '#f7b731');
+        }
+      }
+      if (!cfgLocal) {
+        line('⏭ Sem config local para forçar envio', '#8b97b0'); return;
+      }
+      line('🚀 Forçando gravação da config local no Firestore...', '#00c8f8');
+      return db.collection(COL).doc(DOC).set({ ft_alert_config: cfgLocal }, { merge: true });
+    })
+    .then(function(r) {
+      if (r === undefined) return;
+      line('✅ Gravado no Firestore! Outros dispositivos receberão via onSnapshot.', '#26de81');
+      if (typeof window._ftAlertRender === 'function') window._ftAlertRender();
+    })
+    .catch(function(e) {
+      line('❌ Erro ao gravar no Firestore: ' + e.message, '#fc5c65');
+      line('💡 Verifique as regras de segurança do Firestore', '#f7b731');
+    });
+};
+
 </script>
 
 <!-- ── Footer branding PJ Tecnologia ── -->

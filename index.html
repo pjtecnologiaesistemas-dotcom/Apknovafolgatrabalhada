@@ -7527,9 +7527,9 @@ var FIRESTORE_DOC_ID     = 'dados';
   }
 
   /* ══════════════════════════════════════════════════════════
-     LÓGICA CENTRAL: detecta TODOS os turnos ativos agora
+     LÓGICA CENTRAL: detecta turnos ativos agora E turnos
+     encerrados nas últimas 24h que ainda não têm FT lançada.
      Retorna array de { posto, periodo, dataRef, entrada, saida }
-     (pode retornar 2 itens em dias de rendição 24h)
      ══════════════════════════════════════════════════════════ */
   function turnosAtivosNoPosto(posto) {
     var cfg_escala = getEscalaPosto(posto);
@@ -7541,44 +7541,41 @@ var FIRESTORE_DOC_ID     = 'dados';
     var aMin    = agora.getHours() * 60 + agora.getMinutes();
     var ativos  = [];
 
-    /* Candidatos: turnos de HOJE e de ONTEM (que cruzam meia-noite) */
+    /* Candidatos: turnos de HOJE, ONTEM e ANTEONTEM
+       (cobre turnos longos encerrados que ainda não foram lançados) */
     var candidatos = [];
 
-    // Turnos que começaram HOJE
-    var diaHoje  = agora.getDay();
-    var hoje     = agora;
-    (semana[diaHoje] || []).forEach(function (t) {
-      candidatos.push({ t: t, dataRef: dateKey(hoje), iniciouOntem: false });
-    });
+    // Janela de verificação: 24 horas atrás
+    var JANELA_HORAS = 24;
 
-    // Turnos que começaram ONTEM e cruzam hoje (nextDay)
-    var ontem    = addDays(agora, -1);
-    var diaOntem = ontem.getDay();
-    (semana[diaOntem] || []).forEach(function (t) {
-      if (t.nd) candidatos.push({ t: t, dataRef: dateKey(ontem), iniciouOntem: true });
-    });
+    for (var diasAtras = 0; diasAtras <= 2; diasAtras++) {
+      var diaRef  = addDays(agora, -diasAtras);
+      var dowRef  = diaRef.getDay();
+      (semana[dowRef] || []).forEach(function (t) {
+        candidatos.push({ t: t, dataRef: dateKey(diaRef), diasAtras: diasAtras });
+      });
+    }
 
     candidatos.forEach(function (c) {
       var t = c.t;
-      var ativo = false;
 
-      if (c.iniciouOntem) {
-        /* Turno começou ontem, termina hoje: ativo se agora < saída */
-        ativo = (aMin < t.s);
-      } else if (t.nd) {
-        /* Turno começa hoje, termina amanhã: ativo se agora >= entrada */
-        ativo = (aMin >= t.e);
-      } else {
-        /* Mesmo dia: ativo se entrada <= agora < saída */
-        ativo = (aMin >= t.e && aMin < t.s);
-      }
+      /* Calcula o timestamp absoluto de início e fim do turno */
+      var dRef     = new Date(c.dataRef + 'T00:00:00');
+      var tsEntrada = dRef.getTime() + t.e * 60000;
+      var tsSaida   = dRef.getTime() + t.s * 60000 + (t.nd ? 24*3600000 : 0);
+      var tsAgora   = agora.getTime();
 
-      if (!ativo) return;
+      /* O turno deve ter começado no passado */
+      if (tsEntrada > tsAgora) return;
+
+      /* O turno deve ter encerrado há no máximo JANELA_HORAS horas */
+      var horasDesdeEncerramento = (tsAgora - tsSaida) / 3600000;
+      if (tsSaida < tsAgora && horasDesdeEncerramento > JANELA_HORAS) return;
 
       /* Aplica regra especial de FT (ex: dias ímpares) */
       if (regraFT && !regraFT(c.dataRef)) return;
 
-      /* Aplica regra de par/ímpar configurada pelo usuário (sobrescreve regraFT) */
+      /* Aplica regra de par/ímpar configurada pelo usuário */
       var cfgCheck = loadConfig();
       var regraUser = getEscalaDiaPosto(cfgCheck, posto);
       if (regraUser !== 'todo') {
@@ -7759,7 +7756,14 @@ var FIRESTORE_DOC_ID     = 'dados';
     return horarios[h] === true;
   }
   function scheduledCheck() {
-    if (isAlertTime()) checkAndAlert();
+    /* Dispara se for horário de entrada de algum turno (janela 5min)
+       OU se já há pendências em aberto (turnos anteriores sem FT). */
+    if (isAlertTime()) { checkAndAlert(); return; }
+    /* Fora da janela: verifica silenciosamente se há pendências antigas */
+    if (!isSnoozed()) {
+      var p = getPendencias();
+      if (p.length) showAlertModal(p);
+    }
   }
 
   /* ── Badge no header ───────────────────────────────────── */
@@ -8176,7 +8180,13 @@ var FIRESTORE_DOC_ID     = 'dados';
       if (el) el.addEventListener('click', fn);
     };
 
-    bind('ft-alert-dismiss', function () { clearSnoozed(); hideAlertModal(); });
+    bind('ft-alert-dismiss', function () {
+      /* Fecha o modal mas NÃO apaga as pendências.
+         Se a FT não for lançada, o alerta voltará no próximo ciclo. */
+      hideAlertModal();
+      if (typeof window.showToast === 'function')
+        window.showToast('✔ Ok! O alerta voltará se a FT não for lançada.', 'success');
+    });
 
     bind('ft-alert-snooze', function () {
       setSnoozed(60);

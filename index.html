@@ -1800,6 +1800,146 @@
     .btn-edit-cancel { min-height: 48px; }
   }
   /* ── Header responsivo — controlado por JS ── */
+
+  /* ── Botão Novo Ciclo ── */
+  .btn-novo-ciclo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #f7b731, #e55039);
+    color: #0d1117;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Exo 2', sans-serif;
+    font-size: .8rem;
+    font-weight: 700;
+    padding: 7px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity .2s, transform .15s;
+    box-shadow: 0 2px 10px rgba(247,183,49,.3);
+  }
+  .btn-novo-ciclo:hover { opacity: .88; }
+  .btn-novo-ciclo:active { transform: scale(.96); }
+
+  /* ── Modal Novo Ciclo ── */
+  #modal-novo-ciclo {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.75);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  #modal-novo-ciclo.open { display: flex; }
+  .novo-ciclo-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 480px;
+    padding: 28px 24px 24px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    animation: slideUp .22s ease;
+  }
+  .novo-ciclo-card h3 {
+    margin: 0 0 6px;
+    font-family: 'Exo 2', sans-serif;
+    font-size: 1.15rem;
+    color: #f7b731;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .novo-ciclo-card .nc-desc {
+    font-size: .85rem;
+    color: #8b949e;
+    margin-bottom: 18px;
+    line-height: 1.6;
+  }
+  .novo-ciclo-card .nc-aviso {
+    background: rgba(247,183,49,.08);
+    border: 1px solid rgba(247,183,49,.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: .82rem;
+    color: #c9d1d9;
+    margin-bottom: 18px;
+    line-height: 1.65;
+  }
+  .novo-ciclo-card .nc-aviso strong { color: #f7b731; }
+  .novo-ciclo-card .nc-manter {
+    background: rgba(38,222,129,.07);
+    border: 1px solid rgba(38,222,129,.25);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: .82rem;
+    color: #c9d1d9;
+    margin-bottom: 22px;
+    line-height: 1.65;
+  }
+  .novo-ciclo-card .nc-manter strong { color: #26de81; }
+  .nc-label {
+    font-size: .8rem;
+    color: #8b949e;
+    margin-bottom: 6px;
+  }
+  #nc-periodo-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-family: 'Exo 2', sans-serif;
+    font-size: .9rem;
+    padding: 10px 14px;
+    margin-bottom: 22px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  #nc-periodo-input:focus { border-color: #f7b731; }
+  .nc-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .nc-btn-cancel {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #8b949e;
+    font-family: 'Exo 2', sans-serif;
+    font-size: .85rem;
+    font-weight: 600;
+    padding: 9px 20px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .nc-btn-cancel:hover { background: #30363d; }
+  .nc-btn-confirm {
+    background: linear-gradient(135deg, #f7b731, #e55039);
+    border: none;
+    border-radius: 8px;
+    color: #0d1117;
+    font-family: 'Exo 2', sans-serif;
+    font-size: .85rem;
+    font-weight: 700;
+    padding: 9px 22px;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  .nc-btn-confirm:hover { opacity: .88; }
+  .nc-btn-confirm:disabled { opacity: .5; cursor: not-allowed; }
+  #nc-status {
+    font-size: .8rem;
+    color: #8b949e;
+    margin-top: 12px;
+    min-height: 20px;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
@@ -1846,6 +1986,10 @@
 
   <!-- Badges / indicadores -->
   <div id="header-badges">
+    <button class="btn-novo-ciclo" onclick="abrirModalNovoCiclo()">🔄 Novo Ciclo</button>
+    <button class="btn-novo-ciclo" onclick="(window.FTAlertEngine && window.FTAlertEngine.openConfig ? window.FTAlertEngine.openConfig() : (document.getElementById('ft-config-overlay') && (document.getElementById('ft-config-overlay').style.display='flex')))" style="background:linear-gradient(135deg,#45aaf2,#2d98da)">
+      ⚙️ Alertas
+    </button>
     <div class="badge-auto">&#x1F4BE; Offline-first</div>
     <span id="sync-status" class="online" title="Status da conexão">
       <span class="dot"></span><span id="sync-label">Online</span>
@@ -7607,6 +7751,9 @@ var FIRESTORE_DOC_ID     = 'dados';
     var registros = getBicoRegistros();
     var pendencias = [];
 
+    // ── Data de início do ciclo atual (Novo Ciclo grava este timestamp) ──
+    var cicloInicioTs = parseInt(localStorage.getItem('ft_ciclo_inicio') || '0', 10);
+
     cfg.postos.forEach(function (posto) {
       // ── Pula posto desativado neste mês ──
       if (!postoAtivoEsteMes(cfg, posto)) return;
@@ -7618,6 +7765,12 @@ var FIRESTORE_DOC_ID     = 'dados';
         if (turno.periodo === 'noite' && !cfg.alertarNoite) return;
         if (turno.periodo === 'dia'   && !postoAlertaDia(cfg, posto))   return;
         if (turno.periodo === 'noite' && !postoAlertaNoite(cfg, posto)) return;
+
+        // ── Ignora turnos anteriores ao último Novo Ciclo ──
+        if (cicloInicioTs > 0) {
+          var turnoTs = new Date(turno.dataRef + 'T00:00:00').getTime() + turno.entrada * 60000;
+          if (turnoTs < cicloInicioTs) return;
+        }
 
         /* Hora de entrada do turno ativo segundo a escala (ex: 16 na sexta) */
         var hEntrada = Math.floor(turno.entrada / 60);
@@ -8760,6 +8913,186 @@ window.diagSync = function () {
     <div class="pj-footer-tagline"><strong>Inovação que conecta.</strong> Tecnologia que transforma.</div>
   </div>
 </div>
+
+
+<!-- ══════════════════ MODAL NOVO CICLO ══════════════════ -->
+<div id="modal-novo-ciclo" role="dialog" aria-modal="true" aria-labelledby="nc-title">
+  <div class="novo-ciclo-card">
+    <h3 id="nc-title">🔄 Iniciar Novo Ciclo</h3>
+    <p class="nc-desc">Esta ação limpa todos os registros de FT e Bico Fixo, iniciando o sistema do zero para um novo período.</p>
+
+    <div class="nc-aviso">
+      ⚠️ <strong>Será apagado permanentemente:</strong><br>
+      • Todos os registros de FT (Folga Trabalhada)<br>
+      • Todos os registros de Bico Fixo<br>
+      • Fila de sincronização pendente
+    </div>
+
+    <div class="nc-manter">
+      ✅ <strong>Será mantido intacto:</strong><br>
+      • Colaboradores (nomes e cadastros)<br>
+      • Postos de serviço<br>
+      • Horários personalizados<br>
+      • Configurações de alertas
+    </div>
+
+    <div class="nc-label">Informe o nome do novo ciclo/período <span style="color:#fc5c65">*</span></div>
+    <input type="text" id="nc-periodo-input" placeholder="Ex: Junho 2026 / 16 Jun → 15 Jul 2026"
+           oninput="document.getElementById('nc-btn-confirm').disabled = !this.value.trim()" />
+
+    <div class="nc-footer">
+      <button class="nc-btn-cancel" onclick="fecharModalNovoCiclo()">Cancelar</button>
+      <button class="nc-btn-confirm" id="nc-btn-confirm" disabled onclick="confirmarNovoCiclo()">
+        🔄 Confirmar Novo Ciclo
+      </button>
+    </div>
+    <div id="nc-status"></div>
+  </div>
+</div>
+
+
+<script>
+/* ══════════════════ NOVO CICLO ══════════════════ */
+
+function abrirModalNovoCiclo() {
+  var input = document.getElementById('nc-periodo-input');
+  var btn   = document.getElementById('nc-btn-confirm');
+  var status = document.getElementById('nc-status');
+  if (input)  input.value = '';
+  if (btn)    btn.disabled = true;
+  if (status) status.textContent = '';
+  document.getElementById('modal-novo-ciclo').classList.add('open');
+}
+
+function fecharModalNovoCiclo() {
+  document.getElementById('modal-novo-ciclo').classList.remove('open');
+}
+
+// Fecha ao clicar fora do card
+document.getElementById('modal-novo-ciclo').addEventListener('click', function(e) {
+  if (e.target === this) fecharModalNovoCiclo();
+});
+
+function ncSetStatus(msg, color) {
+  var el = document.getElementById('nc-status');
+  if (el) { el.textContent = msg; el.style.color = color || '#8b949e'; }
+}
+
+async function confirmarNovoCiclo() {
+  var periodo = (document.getElementById('nc-periodo-input').value || '').trim();
+  if (!periodo) return;
+
+  var btnConfirm = document.getElementById('nc-btn-confirm');
+  var btnCancel  = document.querySelector('.nc-btn-cancel');
+  btnConfirm.disabled = true;
+  btnCancel.disabled  = true;
+  btnConfirm.textContent = '⏳ Limpando…';
+
+  try {
+    // ── 1. Zerar no localStorage / IndexedDB ──────────────────
+    ncSetStatus('Limpando armazenamento local…', '#f7b731');
+
+    ['ft_registros', 'ft_bico_fixo'].forEach(function(key) {
+      try { localStorage.setItem(key, JSON.stringify([])); } catch(e) {}
+    });
+
+    // Grava timestamp do início do novo ciclo (usado para suprimir alertas de datas anteriores)
+    try { localStorage.setItem('ft_ciclo_inicio', String(Date.now())); } catch(e) {}
+    // Limpa snooze de alertas do ciclo anterior
+    try { localStorage.removeItem('ft_alert_snoozed'); } catch(e) {}
+
+    if (window.FT_Store) {
+      await FT_Store.set('ft_registros', []);
+      await FT_Store.set('ft_bico_fixo', []);
+    }
+
+    // ── 2. Limpar fila de sincronização pendente ──────────────
+    ncSetStatus('Limpando fila de sincronização…', '#f7b731');
+    if (window.SyncEngine && typeof SyncEngine.clearQueue === 'function') {
+      await SyncEngine.clearQueue();
+    } else if (window.FT_SyncQueue && typeof FT_SyncQueue.clearQueue === 'function') {
+      await FT_SyncQueue.clearQueue();
+    } else {
+      // Força limpeza manual via IndexedDB
+      try {
+        var dbReq = indexedDB.open('folga_trabalhada_db', 1);
+        dbReq.onsuccess = function(e) {
+          var idb = e.target.result;
+          try {
+            var tx = idb.transaction('sync_queue', 'readwrite');
+            tx.objectStore('sync_queue').clear();
+          } catch(ex) {}
+        };
+      } catch(ex) {}
+    }
+
+    // ── 3. Gravar zeros no Firestore (mantém campos de referência) ──
+    ncSetStatus('Sincronizando com Firestore…', '#f7b731');
+
+    if (typeof firebase !== 'undefined') {
+      var db  = firebase.firestore();
+      var col = window.FIRESTORE_COLLECTION || 'folga_trabalhada';
+      var doc = window.FIRESTORE_DOC_ID     || 'dados';
+
+      await db.collection(col).doc(doc).set({
+        ft_registros: [],
+        ft_bico_fixo: []
+      }, { merge: true });   // merge: true preserva ft_colaboradores, ft_postos, ft_horarios_custom, ft_alert_config
+
+      ncSetStatus('✅ Firestore limpo com sucesso!', '#26de81');
+    } else {
+      ncSetStatus('⚠️ Firebase não conectado — dados locais zerados.', '#f7b731');
+    }
+
+    // ── 4. Atualizar UI em memória ────────────────────────────
+    // Notifica a UI principal para re-renderizar
+    if (typeof window.onSyncComplete === 'function') {
+      window.onSyncComplete(true);
+    }
+
+    // Re-renderiza gráficos e relatórios se as funções existirem
+    ['renderDash', 'renderRelatorio', 'renderGeral', 'renderHistorico',
+     'renderPagamentos', 'renderDashGeral'].forEach(function(fn) {
+      if (typeof window[fn] === 'function') {
+        try { window[fn](); } catch(e) {}
+      }
+    });
+
+    // Fecha modal de alertas e remove badge de pendências do header
+    var alertModal = document.getElementById('ft-alert-modal');
+    if (alertModal) alertModal.style.display = 'none';
+    var alertBadge = document.getElementById('ft-pending-header-badge');
+    if (alertBadge) alertBadge.remove();
+    // Atualiza badge do header (deve mostrar 0 pendências agora)
+    if (typeof window.updateHeaderBadge === 'function') {
+      try { window.updateHeaderBadge(); } catch(e) {}
+    }
+
+    // ── 5. Fechar modal e notificar ───────────────────────────
+    setTimeout(function() {
+      fecharModalNovoCiclo();
+      if (typeof showToast === 'function') {
+        showToast('✅ Novo ciclo iniciado: ' + periodo);
+      } else {
+        var t = document.getElementById('toast');
+        if (t) {
+          t.textContent = '✅ Novo ciclo iniciado: ' + periodo;
+          t.classList.add('show');
+          setTimeout(function() { t.classList.remove('show'); }, 3500);
+        }
+      }
+    }, 800);
+
+  } catch(err) {
+    ncSetStatus('❌ Erro: ' + err.message, '#fc5c65');
+    btnConfirm.disabled = false;
+    btnConfirm.textContent = '🔄 Confirmar Novo Ciclo';
+    btnCancel.disabled = false;
+    console.error('[NovoCiclo] Erro:', err);
+  }
+}
+/* ══════════════════ FIM NOVO CICLO ══════════════════ */
+</script>
 
 </body>
 </html>
